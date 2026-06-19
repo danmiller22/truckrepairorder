@@ -172,7 +172,7 @@ issue - ${s.data.issue || "—"}
 
 files - ${s.data.media.length}
 
-когда оставляет truck - ${s.data.drop || "—"}`;
+drop-off time - ${s.data.drop || "—"}`;
 }
 
 function confirmKeyboard() {
@@ -291,7 +291,7 @@ Deno.serve(async (req) => {
 
     if (s.step === 1) {
       if (!text) {
-        await send(msg.chat.id, "Enter your first and last name текстом");
+        await send(msg.chat.id, "Enter your first and last name as text");
         return new Response("ok");
       }
 
