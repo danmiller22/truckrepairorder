@@ -41,6 +41,24 @@ function healthResponse() {
   });
 }
 
+async function webhookInfoResponse() {
+  const info = await telegram("getWebhookInfo", {});
+  return Response.json({ ok: true, info });
+}
+
+async function setupWebhookResponse(req: Request) {
+  const webhookUrl = new URL("/", req.url).toString();
+  const result = await telegram("setWebhook", { url: webhookUrl });
+  const info = await telegram("getWebhookInfo", {});
+
+  return Response.json({
+    ok: true,
+    webhookUrl,
+    result,
+    info,
+  });
+}
+
 function emptyData(): Session["data"] {
   return { name: "", truck: "", issue: "", drop: "", media: [] };
 }
@@ -68,10 +86,20 @@ async function telegram(method: string, payload: Record<string, unknown>) {
     body: JSON.stringify(payload),
   });
 
+  const details = await response.text();
+  let data: unknown = details;
+
+  try {
+    data = JSON.parse(details);
+  } catch {
+    // Telegram normally returns JSON, but keep the raw body for unusual failures.
+  }
+
   if (!response.ok) {
-    const details = await response.text();
     throw new Error(`Telegram ${method} failed: ${response.status} ${details}`);
   }
+
+  return data;
 }
 
 async function send(chat: number | string, text: string, keyboard?: Record<string, unknown>) {
@@ -169,8 +197,23 @@ async function showConfirmation(chatId: number | string, s: Session) {
 
 // ===== SERVER =====
 Deno.serve(async (req) => {
+  const url = new URL(req.url);
+
   if (req.method === "GET") {
-    return healthResponse();
+    try {
+      if (url.pathname === "/webhook-info") {
+        return await webhookInfoResponse();
+      }
+
+      if (url.pathname === "/setup-webhook") {
+        return await setupWebhookResponse(req);
+      }
+
+      return healthResponse();
+    } catch (error) {
+      console.error("Health/setup request failed", error);
+      return Response.json({ ok: false, error: String(error) }, { status: 500 });
+    }
   }
 
   if (req.method !== "POST") {
