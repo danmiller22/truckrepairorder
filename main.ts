@@ -224,14 +224,6 @@ function confirmKeyboard() {
   };
 }
 
-function mediaKeyboard() {
-  return {
-    inline_keyboard: [[
-      { text: "Skip", callback_data: "skip_media" },
-    ]],
-  };
-}
-
 async function showConfirmation(chatId: number | string, s: Session) {
   await send(chatId, card(s), confirmKeyboard());
 }
@@ -297,13 +289,6 @@ Deno.serve(async (req) => {
           ]],
         });
 
-        return new Response("ok");
-      }
-
-      if (cb.data === "skip_media") {
-        s.step = 6;
-        await saveSession(cb.from.id, s);
-        await showConfirmation(cb.message.chat.id, s);
         return new Response("ok");
       }
 
@@ -382,14 +367,14 @@ Deno.serve(async (req) => {
       s.data.drop = text;
       s.step = 5;
       await saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Send a photo or video of the issue", mediaKeyboard());
+      await send(msg.chat.id, "Send a photo or video of the issue");
       return new Response("ok");
     }
 
     // ================= MEDIA =================
     if (s.step === 5) {
       if (!msg.photo && !msg.video) {
-        await send(msg.chat.id, "Waiting for a photo or video. If there are no files, tap Skip.", mediaKeyboard());
+        await send(msg.chat.id, "Please send a photo or video of the issue.");
         return new Response("ok");
       }
 
