@@ -42,6 +42,15 @@ function healthResponse() {
   });
 }
 
+async function storageInfoResponse() {
+  const store = await sessionStore();
+
+  return Response.json({
+    ok: Boolean(store),
+    storage: store ? "deno_kv" : "memory",
+  });
+}
+
 async function webhookInfoResponse() {
   const info = await telegram("getWebhookInfo", {});
   return Response.json({ ok: true, info });
@@ -233,6 +242,10 @@ Deno.serve(async (req) => {
 
   if (req.method === "GET") {
     try {
+      if (url.pathname === "/storage-info") {
+        return await storageInfoResponse();
+      }
+
       if (url.pathname === "/webhook-info") {
         return await webhookInfoResponse();
       }
