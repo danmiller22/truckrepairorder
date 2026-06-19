@@ -72,17 +72,48 @@ async function answerCallback(id: string) {
   await telegram("answerCallbackQuery", { callback_query_id: id });
 }
 
+async function sendSingleMedia(item: MediaItem) {
+  if (item.type === "photo") {
+    await telegram("sendPhoto", {
+      chat_id: GROUP,
+      photo: item.file_id,
+      caption: "📎 Поломки",
+    });
+    return;
+  }
+
+  await telegram("sendVideo", {
+    chat_id: GROUP,
+    video: item.file_id,
+    caption: "📎 Поломки",
+  });
+}
+
 async function sendMedia(items: MediaItem[]) {
   if (!items.length) return;
 
-  await telegram("sendMediaGroup", {
-    chat_id: GROUP,
-    media: items.map((m, i) => ({
-      type: m.type,
-      media: m.file_id,
-      caption: i === 0 ? "📎 Поломки" : undefined,
-    })),
-  });
+  if (items.length === 1) {
+    await sendSingleMedia(items[0]);
+    return;
+  }
+
+  for (let i = 0; i < items.length; i += 10) {
+    const group = items.slice(i, i + 10);
+
+    if (group.length === 1) {
+      await sendSingleMedia(group[0]);
+      continue;
+    }
+
+    await telegram("sendMediaGroup", {
+      chat_id: GROUP,
+      media: group.map((m, index) => ({
+        type: m.type,
+        media: m.file_id,
+        caption: i === 0 && index === 0 ? "📎 Поломки" : undefined,
+      })),
+    });
+  }
 }
 
 // ===== CARD =====
