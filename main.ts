@@ -121,7 +121,7 @@ async function sendSingleMedia(item: MediaItem) {
     await telegram("sendPhoto", {
       chat_id: group,
       photo: item.file_id,
-      caption: "📎 Поломки",
+      caption: "📎 Damage",
     });
     return;
   }
@@ -129,7 +129,7 @@ async function sendSingleMedia(item: MediaItem) {
   await telegram("sendVideo", {
     chat_id: group,
     video: item.file_id,
-    caption: "📎 Поломки",
+    caption: "📎 Damage",
   });
 }
 
@@ -156,7 +156,7 @@ async function sendMedia(items: MediaItem[]) {
       media: group.map((m, index) => ({
         type: m.type,
         media: m.file_id,
-        caption: i === 0 && index === 0 ? "📎 Поломки" : undefined,
+        caption: i === 0 && index === 0 ? "📎 Damage" : undefined,
       })),
     });
   }
@@ -164,21 +164,21 @@ async function sendMedia(items: MediaItem[]) {
 
 // ===== CARD =====
 function card(s: Session) {
-  return `🚛 Новый репорт
+  return `🚛 New report
 
-имя - ${s.data.name || "—"}
-трак - ${s.data.truck || "—"}
-поломка - ${s.data.issue || "—"}
+name - ${s.data.name || "—"}
+truck - ${s.data.truck || "—"}
+issue - ${s.data.issue || "—"}
 
-файлы - ${s.data.media.length}
+files - ${s.data.media.length}
 
-когда оставляет трак - ${s.data.drop || "—"}`;
+когда оставляет truck - ${s.data.drop || "—"}`;
 }
 
 function confirmKeyboard() {
   return {
     inline_keyboard: [[
-      { text: "Подтвердить", callback_data: "confirm" },
+      { text: "Confirm", callback_data: "confirm" },
     ]],
   };
 }
@@ -186,7 +186,7 @@ function confirmKeyboard() {
 function mediaKeyboard() {
   return {
     inline_keyboard: [[
-      { text: "Пропустить", callback_data: "skip_media" },
+      { text: "Skip", callback_data: "skip_media" },
     ]],
   };
 }
@@ -246,9 +246,9 @@ Deno.serve(async (req) => {
         s.data = emptyData();
         saveSession(cb.from.id, s);
 
-        await send(cb.message.chat.id, "Заявка отправлена", {
+        await send(cb.message.chat.id, "Request submitted", {
           inline_keyboard: [[
-            { text: "Создать новый репорт", callback_data: "new" },
+            { text: "Create a new report", callback_data: "new" },
           ]],
         });
 
@@ -267,14 +267,14 @@ Deno.serve(async (req) => {
         s.data = emptyData();
         saveSession(cb.from.id, s);
 
-        await send(cb.message.chat.id, "Введите имя и фамилию");
+        await send(cb.message.chat.id, "Enter your first and last name");
         return new Response("ok");
       }
     }
 
     if (!msg) return new Response("ok");
 
-    // ❗ игнор групп
+    // Ignore group chats
     if (msg.chat.type !== "private") return new Response("ok");
 
     const s = getSession(msg.from.id);
@@ -285,66 +285,66 @@ Deno.serve(async (req) => {
       s.step = 1;
       s.data = emptyData();
       saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Введите имя и фамилию");
+      await send(msg.chat.id, "Enter your first and last name");
       return new Response("ok");
     }
 
     if (s.step === 1) {
       if (!text) {
-        await send(msg.chat.id, "Введите имя и фамилию текстом");
+        await send(msg.chat.id, "Enter your first and last name текстом");
         return new Response("ok");
       }
 
       s.data.name = text;
       s.step = 2;
       saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Введите номер трака");
+      await send(msg.chat.id, "Enter the truck number");
       return new Response("ok");
     }
 
     if (s.step === 2) {
       if (!text) {
-        await send(msg.chat.id, "Введите номер трака текстом");
+        await send(msg.chat.id, "Enter the truck number as text");
         return new Response("ok");
       }
 
       s.data.truck = text;
       s.step = 3;
       saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Опишите поломки");
+      await send(msg.chat.id, "Describe the issue");
       return new Response("ok");
     }
 
     if (s.step === 3) {
       if (!text) {
-        await send(msg.chat.id, "Опишите поломки текстом");
+        await send(msg.chat.id, "Describe the issue as text");
         return new Response("ok");
       }
 
       s.data.issue = text;
       s.step = 4;
       saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Когда оставляет трак?");
+      await send(msg.chat.id, "When will you drop off the truck?");
       return new Response("ok");
     }
 
     if (s.step === 4) {
       if (!text) {
-        await send(msg.chat.id, "Напишите, когда оставляет трак");
+        await send(msg.chat.id, "Please write when you will drop off the truck");
         return new Response("ok");
       }
 
       s.data.drop = text;
       s.step = 5;
       saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Отправьте фото или видео поломки", mediaKeyboard());
+      await send(msg.chat.id, "Send a photo or video of the issue", mediaKeyboard());
       return new Response("ok");
     }
 
     // ================= MEDIA =================
     if (s.step === 5) {
       if (!msg.photo && !msg.video) {
-        await send(msg.chat.id, "Жду фото или видео. Если файлов нет, нажмите Пропустить.", mediaKeyboard());
+        await send(msg.chat.id, "Waiting for a photo or video. If there are no files, tap Skip.", mediaKeyboard());
         return new Response("ok");
       }
 
@@ -355,7 +355,7 @@ Deno.serve(async (req) => {
       s.data.media.push(item);
       saveSession(msg.from.id, s);
 
-      // ❗ ВАЖНО: карточка только 1 раз, после первого медиа
+      // Show confirmation only once, after the first media attachment
       if (s.data.media.length === 1) {
         await showConfirmation(msg.chat.id, s);
       }
@@ -363,7 +363,7 @@ Deno.serve(async (req) => {
       return new Response("ok");
     }
 
-    await send(msg.chat.id, "Нажмите /start, чтобы создать новый репорт");
+    await send(msg.chat.id, "Tap /start to create a new report");
     return new Response("ok");
   } catch (error) {
     console.error("Update handling failed", error);
