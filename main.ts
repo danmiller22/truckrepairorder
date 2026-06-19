@@ -1,5 +1,6 @@
 // ===== STATE =====
 const sessions = new Map<number, Session>();
+let kvStorePromise: Promise<any | null> | undefined;
 
 type MediaItem = {
   type: "photo" | "video";
@@ -63,18 +64,49 @@ function emptyData(): Session["data"] {
   return { name: "", truck: "", issue: "", drop: "", media: [] };
 }
 
-function getSession(id: number) {
-  if (!sessions.has(id)) {
-    sessions.set(id, {
-      step: 1,
-      data: emptyData(),
+async function sessionStore() {
+  if (!kvStorePromise) {
+    kvStorePromise = Deno.openKv().catch((error) => {
+      console.error("Deno KV unavailable; using in-memory sessions only", error);
+      return null;
     });
   }
-  return sessions.get(id)!;
+
+  return await kvStorePromise;
 }
 
-function saveSession(id: number, s: Session) {
-  sessions.set(id, structuredClone(s));
+function newSession(): Session {
+  return {
+    step: 1,
+    data: emptyData(),
+  };
+}
+
+async function getSession(id: number) {
+  const store = await sessionStore();
+
+  if (store) {
+    const result = await store.get<Session>(["sessions", id]);
+    if (result.value) {
+      const saved = structuredClone(result.value);
+      sessions.set(id, saved);
+      return structuredClone(saved);
+    }
+  }
+
+  const session = sessions.get(id) || newSession();
+  sessions.set(id, structuredClone(session));
+  return structuredClone(session);
+}
+
+async function await saveSession(id: number, s: Session) {
+  const session = structuredClone(s);
+  sessions.set(id, session);
+
+  const store = await sessionStore();
+  if (store) {
+    await store.set(["sessions", id], session);
+  }
 }
 
 // ===== TELEGRAM API =====
@@ -235,7 +267,7 @@ Deno.serve(async (req) => {
     // ================= CALLBACK =================
     if (cb) {
       await answerCallback(cb.id);
-      const s = getSession(cb.from.id);
+      const s = await getSession(cb.from.id);
 
       if (cb.data === "confirm") {
         const group = requireEnv("GROUP_CHAT_ID");
@@ -244,7 +276,7 @@ Deno.serve(async (req) => {
 
         s.step = 1;
         s.data = emptyData();
-        saveSession(cb.from.id, s);
+        await saveSession(cb.from.id, s);
 
         await send(cb.message.chat.id, "Request submitted", {
           inline_keyboard: [[
@@ -257,7 +289,7 @@ Deno.serve(async (req) => {
 
       if (cb.data === "skip_media") {
         s.step = 6;
-        saveSession(cb.from.id, s);
+        await saveSession(cb.from.id, s);
         await showConfirmation(cb.message.chat.id, s);
         return new Response("ok");
       }
@@ -265,7 +297,7 @@ Deno.serve(async (req) => {
       if (cb.data === "new") {
         s.step = 1;
         s.data = emptyData();
-        saveSession(cb.from.id, s);
+        await saveSession(cb.from.id, s);
 
         await send(cb.message.chat.id, "Enter your first and last name");
         return new Response("ok");
@@ -277,14 +309,14 @@ Deno.serve(async (req) => {
     // Ignore group chats
     if (msg.chat.type !== "private") return new Response("ok");
 
-    const s = getSession(msg.from.id);
+    const s = await getSession(msg.from.id);
     const text = msg.text?.trim() || "";
 
     // ================= FLOW =================
     if (text === "/start") {
       s.step = 1;
       s.data = emptyData();
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
       await send(msg.chat.id, "Enter your first and last name");
       return new Response("ok");
     }
@@ -297,7 +329,7 @@ Deno.serve(async (req) => {
 
       s.data.name = text;
       s.step = 2;
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
       await send(msg.chat.id, "Enter the truck number");
       return new Response("ok");
     }
@@ -310,7 +342,7 @@ Deno.serve(async (req) => {
 
       s.data.truck = text;
       s.step = 3;
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
       await send(msg.chat.id, "Describe the issue");
       return new Response("ok");
     }
@@ -323,7 +355,7 @@ Deno.serve(async (req) => {
 
       s.data.issue = text;
       s.step = 4;
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
       await send(msg.chat.id, "When will you drop off the truck?");
       return new Response("ok");
     }
@@ -336,7 +368,7 @@ Deno.serve(async (req) => {
 
       s.data.drop = text;
       s.step = 5;
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
       await send(msg.chat.id, "Send a photo or video of the issue", mediaKeyboard());
       return new Response("ok");
     }
@@ -353,7 +385,7 @@ Deno.serve(async (req) => {
         : { type: "video", file_id: msg.video.file_id };
 
       s.data.media.push(item);
-      saveSession(msg.from.id, s);
+      await saveSession(msg.from.id, s);
 
       // Show confirmation only once, after the first media attachment
       if (s.data.media.length === 1) {
