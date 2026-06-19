@@ -99,7 +99,7 @@ async function getSession(id: number) {
   return structuredClone(session);
 }
 
-async function await saveSession(id: number, s: Session) {
+async function saveSession(id: number, s: Session) {
   const session = structuredClone(s);
   sessions.set(id, session);
 
