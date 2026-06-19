@@ -1,6 +1,3 @@
-const TOKEN = requireEnv("BOT_TOKEN");
-const GROUP = requireEnv("GROUP_CHAT_ID");
-
 // ===== STATE =====
 const sessions = new Map<number, Session>();
 
@@ -20,12 +17,28 @@ type Session = {
   };
 };
 
+function env(name: string) {
+  return Deno.env.get(name)?.trim() || "";
+}
+
 function requireEnv(name: string) {
-  const value = Deno.env.get(name);
+  const value = env(name);
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
+}
+
+function healthResponse() {
+  const botTokenSet = Boolean(env("BOT_TOKEN"));
+  const groupChatIdSet = Boolean(env("GROUP_CHAT_ID"));
+
+  return Response.json({
+    service: "truckrepairorder",
+    ok: botTokenSet && groupChatIdSet,
+    botTokenSet,
+    groupChatIdSet,
+  });
 }
 
 function emptyData(): Session["data"] {
@@ -48,7 +61,8 @@ function saveSession(id: number, s: Session) {
 
 // ===== TELEGRAM API =====
 async function telegram(method: string, payload: Record<string, unknown>) {
-  const response = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+  const token = requireEnv("BOT_TOKEN");
+  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -73,9 +87,11 @@ async function answerCallback(id: string) {
 }
 
 async function sendSingleMedia(item: MediaItem) {
+  const group = requireEnv("GROUP_CHAT_ID");
+
   if (item.type === "photo") {
     await telegram("sendPhoto", {
-      chat_id: GROUP,
+      chat_id: group,
       photo: item.file_id,
       caption: "📎 Поломки",
     });
@@ -83,7 +99,7 @@ async function sendSingleMedia(item: MediaItem) {
   }
 
   await telegram("sendVideo", {
-    chat_id: GROUP,
+    chat_id: group,
     video: item.file_id,
     caption: "📎 Поломки",
   });
@@ -97,6 +113,8 @@ async function sendMedia(items: MediaItem[]) {
     return;
   }
 
+  const groupChatId = requireEnv("GROUP_CHAT_ID");
+
   for (let i = 0; i < items.length; i += 10) {
     const group = items.slice(i, i + 10);
 
@@ -106,7 +124,7 @@ async function sendMedia(items: MediaItem[]) {
     }
 
     await telegram("sendMediaGroup", {
-      chat_id: GROUP,
+      chat_id: groupChatId,
       media: group.map((m, index) => ({
         type: m.type,
         media: m.file_id,
@@ -152,7 +170,7 @@ async function showConfirmation(chatId: number | string, s: Session) {
 // ===== SERVER =====
 Deno.serve(async (req) => {
   if (req.method === "GET") {
-    return new Response("Truck repair bot is running");
+    return healthResponse();
   }
 
   if (req.method !== "POST") {
@@ -177,7 +195,8 @@ Deno.serve(async (req) => {
       const s = getSession(cb.from.id);
 
       if (cb.data === "confirm") {
-        await send(GROUP, card(s));
+        const group = requireEnv("GROUP_CHAT_ID");
+        await send(group, card(s));
         await sendMedia(s.data.media);
 
         s.step = 1;
