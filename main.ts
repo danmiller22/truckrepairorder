@@ -11,6 +11,7 @@ type Session = {
   step: number;
   data: {
     name: string;
+    username: string;
     truck: string;
     issue: string;
     drop: string;
@@ -70,7 +71,13 @@ async function setupWebhookResponse(req: Request) {
 }
 
 function emptyData(): Session["data"] {
-  return { name: "", truck: "", issue: "", drop: "", media: [] };
+  return { name: "", username: "", truck: "", issue: "", drop: "", media: [] };
+}
+
+function rememberUsername(s: Session, user: any) {
+  if (user?.username) {
+    s.data.username = `@${user.username}`;
+  }
 }
 
 async function sessionStore() {
@@ -208,6 +215,7 @@ function card(s: Session) {
   return `🚛 New report
 
 name - ${s.data.name || "—"}
+telegram - ${s.data.username || "—"}
 truck - ${s.data.truck || "—"}
 issue - ${s.data.issue || "—"}
 
@@ -220,6 +228,14 @@ function confirmKeyboard() {
   return {
     inline_keyboard: [[
       { text: "Confirm", callback_data: "confirm" },
+    ]],
+  };
+}
+
+function skipMediaKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "Skip", callback_data: "skip_media" },
     ]],
   };
 }
@@ -273,6 +289,15 @@ Deno.serve(async (req) => {
     if (cb) {
       await answerCallback(cb.id);
       const s = await getSession(cb.from.id);
+      rememberUsername(s, cb.from);
+
+      if (cb.data === "skip_media") {
+        if (s.step === 5) {
+          await saveSession(cb.from.id, s);
+          await showConfirmation(cb.message.chat.id, s);
+        }
+        return new Response("ok");
+      }
 
       if (cb.data === "confirm") {
         const group = requireEnv("GROUP_CHAT_ID");
@@ -308,6 +333,7 @@ Deno.serve(async (req) => {
     if (msg.chat.type !== "private") return new Response("ok");
 
     const s = await getSession(msg.from.id);
+    rememberUsername(s, msg.from);
     const text = msg.text?.trim() || "";
 
     // ================= FLOW =================
@@ -367,14 +393,22 @@ Deno.serve(async (req) => {
       s.data.drop = text;
       s.step = 5;
       await saveSession(msg.from.id, s);
-      await send(msg.chat.id, "Send a photo or video of the issue");
+      await send(
+        msg.chat.id,
+        "Send a photo or video of the issue.\n\nIf you don't have a photo, tap Skip.",
+        skipMediaKeyboard(),
+      );
       return new Response("ok");
     }
 
     // ================= MEDIA =================
     if (s.step === 5) {
       if (!msg.photo && !msg.video) {
-        await send(msg.chat.id, "Please send a photo or video of the issue.");
+        await send(
+          msg.chat.id,
+          "Send a photo or video of the issue.\n\nIf you don't have a photo, tap Skip.",
+          skipMediaKeyboard(),
+        );
         return new Response("ok");
       }
 
