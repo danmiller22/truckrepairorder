@@ -1,5 +1,7 @@
 // ===== STATE =====
 const sessions = new Map<number, Session>();
+const processedUpdates = new Map<number, number>();
+const localSessionLocks = new Map<number, string>();
 let kvStorePromise: Promise<any | null> | undefined;
 
 type MediaItem = {
@@ -123,6 +125,90 @@ async function saveSession(id: number, s: Session) {
   if (store) {
     await store.set(["sessions", id], session);
   }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireSessionLock(id: number) {
+  const token = crypto.randomUUID();
+  const store = await sessionStore();
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (store) {
+      const current = await store.get(["session_locks", id]);
+      if (!current.value) {
+        const result = await store.atomic()
+          .check(current)
+          .set(["session_locks", id], token, { expireIn: 60_000 })
+          .commit();
+        if (result.ok) return token;
+      }
+    } else if (!localSessionLocks.has(id)) {
+      localSessionLocks.set(id, token);
+      return token;
+    }
+
+    await delay(50);
+  }
+
+  throw new Error(`Timed out waiting for session lock: ${id}`);
+}
+
+async function releaseSessionLock(id: number, token: string) {
+  const store = await sessionStore();
+
+  if (store) {
+    const current = await store.get<string>(["session_locks", id]);
+    if (current.value === token) {
+      await store.atomic().check(current).delete(["session_locks", id]).commit();
+    }
+    return;
+  }
+
+  if (localSessionLocks.get(id) === token) localSessionLocks.delete(id);
+}
+
+async function claimUpdate(updateId: unknown) {
+  if (typeof updateId !== "number") return crypto.randomUUID();
+
+  const store = await sessionStore();
+  const token = crypto.randomUUID();
+
+  if (store) {
+    const current = await store.get(["processed_updates", updateId]);
+    if (current.value) return null;
+
+    const result = await store.atomic()
+      .check(current)
+      .set(["processed_updates", updateId], token, { expireIn: 86_400_000 })
+      .commit();
+    return result.ok ? token : null;
+  }
+
+  const cutoff = Date.now() - 86_400_000;
+  for (const [id, timestamp] of processedUpdates) {
+    if (timestamp < cutoff) processedUpdates.delete(id);
+  }
+  if (processedUpdates.has(updateId)) return null;
+  processedUpdates.set(updateId, Date.now());
+  return token;
+}
+
+async function releaseUpdateClaim(updateId: unknown, token: string) {
+  if (typeof updateId !== "number") return;
+
+  const store = await sessionStore();
+  if (store) {
+    const current = await store.get<string>(["processed_updates", updateId]);
+    if (current.value === token) {
+      await store.atomic().check(current).delete(["processed_updates", updateId]).commit();
+    }
+    return;
+  }
+
+  processedUpdates.delete(updateId);
 }
 
 // ===== TELEGRAM API =====
@@ -281,9 +367,18 @@ Deno.serve(async (req) => {
     return new Response("bad request", { status: 400 });
   }
 
+  let userId: number | undefined;
+  let sessionLockToken: string | undefined;
+  let updateClaimToken: string | null = null;
+
   try {
     const msg = update.message;
     const cb = update.callback_query;
+    userId = cb?.from?.id ?? msg?.from?.id;
+
+    if (userId) sessionLockToken = await acquireSessionLock(userId);
+    updateClaimToken = await claimUpdate(update.update_id);
+    if (!updateClaimToken) return new Response("ok");
 
     // ================= CALLBACK =================
     if (cb) {
@@ -430,7 +525,14 @@ Deno.serve(async (req) => {
     await send(msg.chat.id, "Tap /start to create a new report");
     return new Response("ok");
   } catch (error) {
+    if (updateClaimToken) {
+      await releaseUpdateClaim(update.update_id, updateClaimToken).catch(console.error);
+    }
     console.error("Update handling failed", error);
     return new Response("error", { status: 500 });
+  } finally {
+    if (userId && sessionLockToken) {
+      await releaseSessionLock(userId, sessionLockToken).catch(console.error);
+    }
   }
 });
